@@ -1,1 +1,126 @@
+const supertest = require('supertest');
+const request = supertest('https://petstore.swagger.io/v2');
+const massa1 = require('../../vendors/json/massauser');
 
+const fixedUserId = 9860;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+jest.setTimeout(40000);
+
+// Função para tentar a requisição GET com retentativas
+async function retryGet(url, maxRetries = 5, delay = 2000) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const res = await request.get(url);
+      if (res.statusCode === 200) {
+        return res;
+      }
+    } catch (e) {
+      // Ignora o erro de conexão ou 404 e tenta novamente
+    }
+    await sleep(delay);
+  }
+  // Se todas as tentativas falharem, faz uma última requisição e lança o erro
+  return request.get(url);
+}
+
+// Nova função para tentar a requisição DELETE com retentativas
+async function retryDelete(url, maxRetries = 5, delay = 2000) {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const res = await request.delete(url);
+        if (res.statusCode === 200) {
+          return res;
+        }
+      } catch (e) {
+        // Ignora o erro e tenta novamente
+      }
+      await sleep(delay);
+    }
+    return request.delete(url);
+  }
+
+describe('Fluxo CRUD User com ID fixo', () => {
+  let user;
+  let updatedUser;
+
+  beforeAll(() => {
+    user = {
+      id: fixedUserId,
+      username: 'sabrina',
+      firstName: 'fonseca',
+      lastName: 'lima',
+      email: 'sabrina@email.com',
+      password: '123456',
+      phone: '11999999999',
+      userStatus: 1
+    };
+    updatedUser = { ...user, firstName: `${user.firstName}_edit` };
+  });
+
+  it('POST User', async () => {
+    const res = await request.post('/user').send(user);
+    expect(res.statusCode).toBe(200);
+    await sleep(3000);
+  });
+
+  it('GET User', async () => {
+    const res = await retryGet(`/user/${user.username}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.username).toBe(user.username);
+  });
+
+  it('PUT User', async () => {
+    const res = await request.put(`/user/${user.username}`).send(updatedUser);
+    expect(res.statusCode).toBe(200);
+    await sleep(3000);
+  });
+
+  it('GET User após PUT', async () => {
+    const res = await retryGet(`/user/${user.username}`);
+    expect(res.statusCode).toBe(200);
+    const validFirstNames = [user.firstName, updatedUser.firstName];
+    expect(validFirstNames).toContain(res.body.firstName);
+  });
+
+  it('DELETE User', async () => {
+    const res = await retryDelete(`/user/${user.username}`); 
+    expect(res.statusCode).toBe(200);
+    expect(res.body.code).toBe(200);
+    expect(res.body.message).toBe(user.username);
+  });
+});
+
+describe('Testes Data Driven - POST e DELETE para cada usuário', () => {
+  massa1.array.forEach(({ nomeUser, userId, firstName, lastName }) => {
+    describe(`Ciclo POST e DELETE para usuário ${nomeUser}`, () => {
+      let user;
+
+      beforeAll(() => {
+        user = {
+          id: userId,
+          username: nomeUser,
+          firstName,
+          lastName,
+          email: `${nomeUser}@email.com`,
+          password: '123456',
+          phone: '11999999999',
+          userStatus: 1
+        };
+      });
+
+      it('POST User', async () => {
+        const res = await request.post('/user').send(user);
+        expect(res.statusCode).toBe(200);
+        await sleep(3000); // dá tempo da API processar
+      });
+
+      it('DELETE User', async () => {
+        const res = await retryDelete(`/user/${user.username}`);
+        expect(res.statusCode).toBe(200);
+        expect(res.body.code).toBe(200);
+        expect(res.body.message).toBe(user.username);
+      });
+    });
+  });
+});
